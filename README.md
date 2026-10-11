@@ -137,7 +137,7 @@ cargo build --release
 cargo build --release --features cuda
 ```
 
-Windows notes: with the `x86_64-pc-windows-gnu` toolchain, `getrandom` needs `dlltool.exe` on `PATH` (e.g. from WinLibs MinGW-w64). The `cuda` feature needs the MSVC toolchain (`cargo +stable-x86_64-pc-windows-msvc`) run from a Visual Studio developer shell, since `nvcc` uses `cl.exe` as its host compiler.
+Windows notes: with the `x86_64-pc-windows-gnu` toolchain, `getrandom` needs `dlltool.exe` on `PATH` (e.g. from WinLibs MinGW-w64). The `cuda` feature needs the MSVC toolchain (`cargo +stable-x86_64-pc-windows-msvc`) run from a Visual Studio developer shell, since `nvcc` uses `cl.exe` as its host compiler. `rust/build_cuda.bat` does all of that: it finds MSVC and CUDA, reads the compute capability from `nvidia-smi`, and builds `rust/target-cuda/release/dit-rs.exe`.
 
 ## Usage
 
