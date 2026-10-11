@@ -58,7 +58,7 @@ FID against CIFAR-10 train statistics with [clean-fid](https://github.com/GaParm
 | **2.0** | **10.97** | **8.97** |
 | 3.0 | 16.06 | |
 
-FID-10k runs a few points higher than FID-50k from sample-size bias, so the sweep only picks the scale. For scale: pixel-space diffusion on CIFAR-10 reaches low single digits with ~10× the training compute; this is a 3-hour run of a 33M-param model.
+FID-10k runs a few points higher than FID-50k from sample-size bias, so the sweep only picks the scale. For scale: the original DDPM (35.7M params, unconditional) reports 3.17 after 800k steps at batch 128, 8× the steps of this 3-hour run.
 
 ## Benchmarks
 
