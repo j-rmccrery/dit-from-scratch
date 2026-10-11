@@ -5,4 +5,4 @@ runs/
 *.pt
 *.safetensors
 *.log
-rust/target/
+rust/target*/

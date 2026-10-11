@@ -47,6 +47,19 @@ dx      = rstd · (g − mean_D(g) − x̂ · mean_D(g · x̂))
 | Hardware / time | RTX 4070 Ti SUPER 16 GB, 9.4 steps/s, ≈3 h |
 | Final loss | 0.136 |
 
+## Sample quality (FID)
+
+FID against CIFAR-10 train statistics with [clean-fid](https://github.com/GaParmar/clean-fid) (Inception-v3, `clean` resizing), EMA weights, Heun 50 steps (99 model evaluations), uniformly random class labels. `python fid.py --ckpt ... --num 50000 --cfg 2.0`
+
+| Guidance | FID-10k | FID-50k |
+|---|---|---|
+| 1.0 (none) | 18.76 | |
+| 1.5 | 11.93 | |
+| **2.0** | **10.97** | **8.97** |
+| 3.0 | 16.06 | |
+
+FID-10k runs a few points higher than FID-50k from sample-size bias, so the sweep only picks the scale. For scale: pixel-space diffusion on CIFAR-10 reaches low single digits with ~10× the training compute; this is a 3-hour run of a 33M-param model.
+
 ## Benchmarks
 
 RTX 4070 Ti SUPER, torch 2.6.0+cu124, Windows (`triton-windows` for `torch.compile`). Reproduce with `python bench.py`.
@@ -91,10 +104,10 @@ In the real model the residual stream is fp32 under autocast, and there the eage
 
 `rust/` reimplements the trained model's forward pass and Heun sampler in [Candle](https://github.com/huggingface/candle), loading the same EMA weights from safetensors. Nothing is shared with the Python code: patchify (6-D permutes), the sin-cos position table (rebuilt in Rust, it's not in the checkpoint), timestep embedding, attention, adaLN-Zero, modulated LayerNorm and CFG are all re-derived. `export.py` writes the weights plus PyTorch reference outputs; `dit-rs parity` checks against them.
 
-| Check (fp32, CPU) | max \|Rust − PyTorch\| | tolerance |
-|---|---|---|
-| One forward pass, 4 images at t ∈ {0.1, 0.4, 0.7, 0.95} | 5.0e-6 | 1e-4 |
-| Full sample: 10 Heun steps, CFG 2.0, from fixed noise | 6.9e-6 | 1e-3 |
+| Check (fp32) | max \|Rust − PyTorch\|, CPU | CUDA | tolerance |
+|---|---|---|---|
+| One forward pass, 4 images at t ∈ {0.1, 0.4, 0.7, 0.95} | 5.0e-6 | 3.1e-6 | 1e-4 |
+| Full sample: 10 Heun steps, CFG 2.0, from fixed noise | 6.9e-6 | 3.2e-6 | 1e-3 |
 
 Errors stay at float32 rounding level through 19 chained model evaluations.
 
@@ -102,12 +115,16 @@ Errors stay at float32 rounding level through 19 chained model evaluations.
 
 *Generated entirely by the Rust binary: 20 Heun steps, CFG 2.0, its own seeded noise (so not pixel-identical to the PyTorch grid).*
 
-| | Rust (Candle 0.9, CPU) | PyTorch 2.6 (CPU, 12 threads) |
-|---|---|---|
-| Parity sample (2 images, 10 Heun steps, CFG) | 13.1 s | 1.8 s |
-| Deployable footprint | 17 MB single binary + 130 MB weights | 4.4 GB `torch` install + weights |
+Inference speed, fp32 eager on both sides (PyTorch with the `einsum` attention path and TF32 off, to match Candle), warm runs, idle RTX 4070 Ti SUPER:
 
-Candle's pure-Rust CPU matmuls are ~7× slower than PyTorch's oneDNN/MKL kernels here; the trade is a self-contained 17 MB executable with no Python runtime. CUDA and MKL backends were not tried.
+| Workload | Rust CPU | PyTorch CPU (12 threads) | Rust CUDA | PyTorch CUDA |
+|---|---|---|---|---|
+| 2 images, 10 Heun steps, CFG 2.0 | 13.4 s | 1.8 s | **0.18 s** | 0.20 s |
+| 100 images, 50 Heun steps, CFG 2.0 | — | — | 35.0 s | **22.5 s** |
+
+- **CPU:** Candle's pure-Rust matmuls are ~7× slower than PyTorch's oneDNN/MKL. Building with `-C target-cpu=native` changed nothing (12.7 vs 12.8 s), so elementwise code isn't the bottleneck. Candle's `mkl` feature only links with the MSVC toolchain (it hard-requires Intel's `libiomp5md`).
+- **CUDA:** 74× faster than Rust CPU. At small batch Candle edges out PyTorch (less per-op overhead); at batch 200 PyTorch's fused kernels win by 1.6×.
+- **Footprint:** a 17 MB CPU binary, no Python runtime, against a 4.4 GB `torch` install.
 
 ```bash
 python export.py --ckpt runs/s2/ckpt.pt --out rust      # model.safetensors + fixtures.safetensors
@@ -115,9 +132,12 @@ cd rust
 cargo build --release
 ./target/release/dit-rs parity model.safetensors fixtures.safetensors
 ./target/release/dit-rs sample model.safetensors grid.png 2.0 20 0   # cfg, steps, seed
+
+# GPU: needs the CUDA toolkit (nvcc); set CUDA_COMPUTE_CAP, e.g. 89 for Ada
+cargo build --release --features cuda
 ```
 
-Windows note: with the `x86_64-pc-windows-gnu` toolchain, `getrandom` needs `dlltool.exe` on `PATH` (e.g. from WinLibs MinGW-w64).
+Windows notes: with the `x86_64-pc-windows-gnu` toolchain, `getrandom` needs `dlltool.exe` on `PATH` (e.g. from WinLibs MinGW-w64). The `cuda` feature needs the MSVC toolchain (`cargo +stable-x86_64-pc-windows-msvc`) run from a Visual Studio developer shell, since `nvcc` uses `cl.exe` as its host compiler.
 
 ## Usage
 
@@ -143,6 +163,7 @@ python train.py --model s --steps 100000 --sdpa --compile --out runs/s2
 
 python sample.py --ckpt runs/s2/ckpt.pt --out assets
 python bench.py
+python fid.py --ckpt runs/s2/ckpt.pt --num 50000 --cfg 2.0   # ~40 min
 ```
 
 ## Layout
@@ -155,6 +176,7 @@ python bench.py
 | `train.py` | Training loop, overfit mode, checkpoint/resume |
 | `sample.py` | Sample grid, guidance sweep, denoising GIF, loss plot |
 | `bench.py` | The benchmark tables above |
+| `fid.py` | FID via clean-fid, with a guidance sweep |
 | `export.py` | Weights + parity fixtures for the Rust port |
 | `rust/` | Candle inference port: `model.rs` (DiT + sampler), `main.rs` (`parity`, `sample` CLI) |
 | `test_core.py` | Correctness checks |
@@ -166,3 +188,4 @@ python bench.py
 - [x] Full CIFAR-10 training run
 - [x] Samples, denoising GIF, benchmarks
 - [x] Rust inference port (Candle) with numerical parity against PyTorch
+- [x] Pretrained weights release, FID-50k, Candle CUDA backend

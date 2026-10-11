@@ -1,2 +1,4 @@
 torch>=2.4
 torchvision
+safetensors     # export.py, released weights
+clean-fid       # fid.py only

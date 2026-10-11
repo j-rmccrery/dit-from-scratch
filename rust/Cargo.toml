@@ -10,5 +10,8 @@ candle-core = "0.9.1"
 candle-nn = "0.9.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+[features]
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
+
 [profile.release]
 debug = false

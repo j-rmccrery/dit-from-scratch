@@ -37,13 +37,15 @@ fn parity(weights: &str, fixtures: &str, dev: &Device) -> Result<()> {
     let d_fwd = max_abs_diff(&v, get("fwd.v")?)?;
     println!("forward       max |rust - torch| = {d_fwd:.2e}  (tol {FWD_TOL:.0e})");
 
-    let start = Instant::now();
-    let out = sample_heun(&model, get("smp.noise")?, &get("smp.y")?.to_dtype(DType::U32)?, PARITY_STEPS, PARITY_CFG)?;
+    let (noise, y) = (get("smp.noise")?, get("smp.y")?.to_dtype(DType::U32)?);
+    let out = sample_heun(&model, noise, &y, PARITY_STEPS, PARITY_CFG)?;
     let d_smp = max_abs_diff(&out, get("smp.out")?)?;
-    println!(
-        "heun sampler  max |rust - torch| = {d_smp:.2e}  (tol {SAMPLE_TOL:.0e}, {PARITY_STEPS} steps, cfg {PARITY_CFG}, {:.1}s)",
-        start.elapsed().as_secs_f32()
-    );
+    println!("heun sampler  max |rust - torch| = {d_smp:.2e}  (tol {SAMPLE_TOL:.0e}, {PARITY_STEPS} steps, cfg {PARITY_CFG})");
+
+    // timed second run: excludes one-off costs (CUDA kernel loading); to_scalar forces completion
+    let start = Instant::now();
+    sample_heun(&model, noise, &y, PARITY_STEPS, PARITY_CFG)?.sum_all()?.to_scalar::<f32>()?;
+    println!("sampler time  {:.2}s on {:?}", start.elapsed().as_secs_f32(), dev);
 
     if d_fwd > FWD_TOL || d_smp > SAMPLE_TOL {
         bail!("parity FAILED");
@@ -79,15 +81,14 @@ fn sample_grid(weights: &str, out: &str, cfg: f64, steps: usize, seed: u64, dev:
 
     let start = Instant::now();
     let x = sample_heun(&model, &noise, &y, steps, cfg)?;
-    println!("sampled 100 images in {:.1}s ({steps} Heun steps, cfg {cfg})", start.elapsed().as_secs_f32());
-
-    // [-1, 1] -> u8, (100, 3, 32, 32) -> (100, 32, 32, 3)
+    // [-1, 1] -> u8, (100, 3, 32, 32) -> (100, 32, 32, 3); to_vec1 also waits for the device to finish
     let px: Vec<u8> = ((x.clamp(-1f32, 1f32)? + 1.0)? * 127.5)?
         .round()?
         .permute((0, 2, 3, 1))?
         .flatten_all()?
         .to_dtype(DType::U8)?
         .to_vec1()?;
+    println!("sampled 100 images in {:.1}s ({steps} Heun steps, cfg {cfg}, {dev:?})", start.elapsed().as_secs_f32());
 
     let (s, pad, up) = (32usize, 2usize, 2usize);
     let cell = s * up + pad;
@@ -110,6 +111,9 @@ fn sample_grid(weights: &str, out: &str, cfg: f64, steps: usize, seed: u64, dev:
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(feature = "cuda")]
+    let dev = Device::new_cuda(0)?;
+    #[cfg(not(feature = "cuda"))]
     let dev = Device::Cpu;
     match args.get(1).map(String::as_str) {
         Some("parity") if args.len() == 4 => parity(&args[2], &args[3], &dev),
