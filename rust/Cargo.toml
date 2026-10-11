@@ -1,0 +1,14 @@
+[package]
+name = "dit-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Inference-only port of the DiT in this repo to Candle, checked for numerical parity with PyTorch"
+
+[dependencies]
+anyhow = "1"
+candle-core = "0.9.1"
+candle-nn = "0.9.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+debug = false
