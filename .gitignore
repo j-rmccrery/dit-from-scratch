@@ -4,3 +4,4 @@ data/
 runs/
 *.pt
 *.safetensors
+*.log
