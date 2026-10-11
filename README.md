@@ -121,6 +121,16 @@ Windows note: with the `x86_64-pc-windows-gnu` toolchain, `getrandom` needs `dll
 
 ## Usage
 
+**Pretrained weights** (DiT-S/2, EMA, step 100k, fp32) are on the [v1.0.0 release](https://github.com/j-rmccrery/dit-from-scratch/releases/tag/v1.0.0): `dit_s2_cifar10_ema.safetensors` (130 MB) and the Rust parity `fixtures.safetensors`.
+
+```bash
+gh release download v1.0.0 -R j-rmccrery/dit-from-scratch      # or download from the release page
+python sample.py --ckpt dit_s2_cifar10_ema.safetensors --out assets
+./rust/target/release/dit-rs parity dit_s2_cifar10_ema.safetensors fixtures.safetensors
+```
+
+From scratch:
+
 ```bash
 pip install -r requirements.txt          # + triton-windows on Windows for --compile
 python test_core.py                      # correctness checks, CPU, seconds

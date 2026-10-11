@@ -22,10 +22,16 @@ CLASSES = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "hors
 
 
 def load_ema(path):
-    ck = torch.load(path, map_location="cuda")
-    m = DiT(img_size=32, patch=2, in_ch=3, num_classes=10, use_sdpa=True, **PRESETS[ck["args"]["model"]]).cuda()
-    m.load_state_dict(ck["ema"])
-    return m.eval(), ck["step"]
+    """Training checkpoint (.pt) or released EMA weights (.safetensors, DiT-S/2)."""
+    if str(path).endswith(".safetensors"):
+        from safetensors.torch import load_file
+        state, step, preset = load_file(path, device="cuda"), "release", "s"
+    else:
+        ck = torch.load(path, map_location="cuda")
+        state, step, preset = ck["ema"], ck["step"], ck["args"]["model"]
+    m = DiT(img_size=32, patch=2, in_ch=3, num_classes=10, use_sdpa=True, **PRESETS[preset]).cuda()
+    m.load_state_dict(state)
+    return m.eval(), step
 
 
 def generate(m, labels, cfg, steps, seed, traj=False):
